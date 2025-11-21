@@ -13,12 +13,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Copy files to EC2 via SSH
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 2222
-          source: "."
-          target: "/var/www/html/exemplifi-wp"
+      - name: Install SSH client and rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
+
+      - name: Configure SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+
+      - name: Deploy to EC2 via rsync
+        run: |
+          rsync -avz -e "ssh -o StrictHostKeyChecking=no -i private_key.pem" \
+          --exclude='.git/' \
+          --exclude='.github/' \
+          --exclude='wp-config.php' \
+          ./ ubuntu@${{ secrets.EC2_IP }}:/var/www/html/exemplifi-wp
+
+      - name: Restart Apache on EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@${{ secrets.EC2_IP }} "sudo systemctl restart apache2"
