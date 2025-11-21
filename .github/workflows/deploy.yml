@@ -2,35 +2,51 @@ name: Deploy WordPress to EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:name: Deploy WordPress to EC2
+
+on:
+  push:
+    branches: [ "main" ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Install SSH client and rsync
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rsync
+    - name: Add SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -p 2222 18.61.77.162 >> ~/.ssh/known_hosts
 
-      - name: Configure SSH key
-        run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
-          chmod 600 private_key.pem
+    - name: Deploy files to EC2 (using SCP)
+      run: |
+        scp -P 2222 -i ~/.ssh/id_rsa -r ./ ubuntu@18.61.77.162:/var/www/html/exemplifi-wp
 
-      - name: Deploy to EC2 via rsync
-        run: |
-          rsync -avz -e "ssh -o StrictHostKeyChecking=no -i private_key.pem" \
-          --exclude='.git/' \
-          --exclude='.github/' \
-          --exclude='wp-config.php' \
-          ./ ubuntu@${{ secrets.EC2_IP }}:/var/www/html/exemplifi-wp
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Restart Apache on EC2
-        run: |
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@${{ secrets.EC2_IP }} "sudo systemctl restart apache2"
+    - name: Install rsync
+      run: sudo apt-get update && sudo apt-get install -y rsync
+
+    - name: Configure SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+
+    - name: Deploy to EC2 using rsync
+      run: |
+        rsync -avz --delete \
+        -e "ssh -i ~/.ssh/id_rsa -p 2222 -o StrictHostKeyChecking=no" \
+        ./ ubuntu@18.61.77.162:/var/www/html/exemplifi-wp
