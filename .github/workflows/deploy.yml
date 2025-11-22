@@ -24,14 +24,17 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-          # Add EC2 host to known_hosts
+          echo "Adding EC2 host to known_hosts"
           ssh-keyscan -p 2222 ${{ secrets.EC2_IP }} >> ~/.ssh/known_hosts
 
       - name: Deploy via rsync
         run: |
+          echo "Starting deployment..."
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/id_rsa -p 2222 -o StrictHostKeyChecking=no" \
-            --exclude='.git/' --exclude='.github/' --exclude='wp-content/uploads/' \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='wp-content/uploads/' \
             ./ ubuntu@${{ secrets.EC2_IP }}:/var/www/html/exemplifi-wp/
 
       - name: Restart Apache
