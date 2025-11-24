@@ -8,46 +8,33 @@ on:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup SSH key for Windows Runner (NetworkService)
-        shell: powershell
+      - name: Setup SSH key
         run: |
-          Write-Host "=== Preparing SSH directory ==="
-          $sshDir = "C:\Windows\ServiceProfiles\NetworkService\.ssh"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
 
-          if (!(Test-Path $sshDir)) {
-            New-Item -ItemType Directory -Path $sshDir | Out-Null
-          }
+          echo "Adding EC2 host to known_hosts"
+          ssh-keyscan -p 22 ${{ secrets.EC2_IP }} >> ~/.ssh/known_hosts
 
-          # Ensure folder permissions
-          icacls $sshDir /grant "NETWORK SERVICE:(OI)(CI)F" /T
-
-          Write-Host "=== Writing private key ==="
-          $keyPath = "$sshDir\id_rsa"
-          Set-Content -Path $keyPath -Value "${{ secrets.EC2_SSH_KEY }}" -Force
-
-          # Fix file permissions
-          icacls $keyPath /inheritance:r
-          icacls $keyPath /grant:r "NETWORK SERVICE:R"
-
-          Write-Host "=== Adding EC2 host to known_hosts ==="
-          ssh-keyscan -p 2222 ${{ secrets.EC2_IP }} | Out-File -Append "$sshDir\known_hosts"
-
-      - name: Deploy files using rsync (Windows syntax)
+      - name: Deploy changed files using rsync
         run: |
-          rsync -avz ^
-            --exclude ".git" ^
-            --exclude ".github" ^
-            --exclude "node_modules" ^
-            --exclude "wp-content/uploads" ^
-            -e "ssh -i C:\Windows\ServiceProfiles\NetworkService\.ssh\id_rsa -p 2222 -o StrictHostKeyChecking=no" ^
+          rsync -avz \
+            --exclude ".git" \
+            --exclude ".github" \
+            --exclude "node_modules" \
+            --exclude "wp-content/uploads" \
+            -e "ssh -i ~/.ssh/id_rsa -p 22 -o StrictHostKeyChecking=no" \
             ./ ubuntu@${{ secrets.EC2_IP }}:/var/www/html/
 
-      - name: Restart Apache & MariaDB on EC2
+      - name: Restart services on EC2
         run: |
-          ssh -i C:\Windows\ServiceProfiles\NetworkService\.ssh\id_rsa -p 2222 ubuntu@${{ secrets.EC2_IP }} "sudo systemctl restart apache2 && sudo systemctl restart mariadb"
+          ssh -i ~/.ssh/id_rsa -p 22 ubuntu@${{ secrets.EC2_IP }} << 'EOF'
+            sudo chown -R www-data:www-data /var/www/html
+            sudo systemctl restart
