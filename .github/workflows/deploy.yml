@@ -11,12 +11,43 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup SSH key (Windows Compatible)
         shell: powershell
         run: |
           $sshDir = "$env:USERPROFILE\.ssh"
+
+          # Create .ssh folder if it doesn't exist
           if (!(Test-Path $sshDir)) {
-            New-Item -It
+            New-Item -ItemType Directory -Path $sshDir | Out-Null
+          }
+
+          # Write private key
+          Set-Content -Path "$sshDir\id_rsa" -Value "${{ secrets.EC2_SSH_KEY }}"
+
+          # Ensure correct permissions
+          icacls "$sshDir\id_rsa" /inheritance:r
+          icacls "$sshDir\id_rsa" /grant:r "NETWORK SERVICE:R"
+
+          # Add EC2 host to known_hosts
+          ssh-keyscan -p 22 ${{ secrets.EC2_IP }} | Out-File -Append "$sshDir\known_hosts"
+
+      - name: Deploy files using SCP (Windows Compatible)
+        shell: powershell
+        run: |
+          scp -i "$env:USERPROFILE\.ssh\id_rsa" `
+            -P 22 `
+            -o StrictHostKeyChecking=no `
+            -r * `
+            ubuntu@${{ secrets.EC2_IP }}:/var/www/html/
+
+      - name: Restart services on EC2
+        shell: powershell
+        run: |
+          ssh -i "$env:USERPROFILE\.ssh\id_rsa" `
+            -p 22 `
+            -o StrictHostKeyChecking=no `
+            ubuntu@${{ secrets.EC2_IP }} `
+            "sudo chown -R www-data:www-data /var/www/html && sudo systemctl restart apache2 && sudo systemctl restart mariadb"
