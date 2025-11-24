@@ -11,43 +11,38 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup SSH key (Windows Compatible)
+      - name: Setup SSH key for Windows self-hosted runner
         shell: powershell
         run: |
-          $sshDir = "$env:USERPROFILE\.ssh"
-
-          # Create .ssh folder if it doesn't exist
+          $sshDir = "C:\Windows\ServiceProfiles\NetworkService\.ssh"
           if (!(Test-Path $sshDir)) {
             New-Item -ItemType Directory -Path $sshDir | Out-Null
           }
 
-          # Write private key
-          Set-Content -Path "$sshDir\id_rsa" -Value "${{ secrets.EC2_SSH_KEY }}"
+          # Write PEM key
+          Set-Content -Path "$sshDir\id_rsa" -Value "${{ secrets.EC2_SSH_KEY }}" -Force
 
-          # Ensure correct permissions
+          # Fix permissions
           icacls "$sshDir\id_rsa" /inheritance:r
           icacls "$sshDir\id_rsa" /grant:r "NETWORK SERVICE:R"
 
           # Add EC2 host to known_hosts
-          ssh-keyscan -p 22 ${{ secrets.EC2_IP }} | Out-File -Append "$sshDir\known_hosts"
+          ssh-keyscan -p 2222 ${{ secrets.EC2_IP }} | Out-File -Append "$sshDir\known_hosts"
 
-      - name: Deploy files using SCP (Windows Compatible)
-        shell: powershell
+      - name: Deploy files using rsync
         run: |
-          scp -i "$env:USERPROFILE\.ssh\id_rsa" `
-            -P 22 `
-            -o StrictHostKeyChecking=no `
-            -r * `
-            ubuntu@${{ secrets.EC2_IP }}:/var/www/html/
+          rsync -avz ^
+            --exclude ".git" ^
+            --exclude ".github" ^
+            --exclude "node_modules" ^
+            --exclude "wp-content/uploads" ^
+            -e "ssh -i C:\Windows\ServiceProfiles\NetworkService\.ssh\id_rsa -p 2222 -o StrictHostKeyChecking=no" ^
+            ./ ubuntu@${{ secrets.EC2_IP }}:/var/www/html/
 
       - name: Restart services on EC2
-        shell: powershell
         run: |
-          ssh -i "$env:USERPROFILE\.ssh\id_rsa" `
-            -p 22 `
-            -o StrictHostKeyChecking=no `
-            ubuntu@${{ secrets.EC2_IP }} `
-            "sudo chown -R www-data:www-data /var/www/html && sudo systemctl restart apache2 && sudo systemctl restart mariadb"
+          ssh -i C:\Windows\ServiceProfiles\NetworkService\.ssh\id_rsa -p 2222 ubuntu@${{ secrets.EC2_IP }} "sudo systemctl restart apache2 && sudo systemctl restart mariadb"
+
